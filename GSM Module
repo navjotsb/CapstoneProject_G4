@@ -1,42 +1,42 @@
 // Referrence https://github.com/skyv26/Cplusplus-Programming-Challenges
 
-#include <fcntl.h>
-#include <cstring>
-#include <cstdlib>
-#include <sstream>
-#include <unistd.h>
-#include <termios.h>
-#include <iostream>
-#include <stdio.h>
-#include <stdlib.h>
-#include <fstream>
-#include <vector>
+#include <fcntl.h> 				//header file
+#include <cstring>				//header file
+#include <cstdlib>				//header file
+#include <sstream>				//header file
+#include <unistd.h>				//header file
+#include <termios.h>				//header file
+#include <iostream>				//header file
+#include <stdio.h>				//header file
+#include <stdlib.h>				//header file
+#include <fstream>				//header file
+#include <vector>				//header file
 
 using namespace std;
 
-class Uart{
+class Uart{					// class 
     private:
-        string portname;
-        size_t baud_rate;
-        int    file_descriptor;
-        int    byte_counter;
+        string portname;  			// private string variable
+        size_t baud_rate;			// private variable used for size
+        int    file_descriptor;			// int variable private variable
+        int    byte_counter;			// int variable byte counter
 
     public:
-        Uart(string portname, size_t baud_rate){
-            this->portname=portname;
-            this->baud_rate=baud_rate;
-            this->file_descriptor=open(this->portname.c_str(), O_RDWR);
+        Uart(string portname, size_t baud_rate){	// function with 2 variables
+            this->portname=portname;			// setting portname
+            this->baud_rate=baud_rate;			// setting baud rate
+            this->file_descriptor=open(this->portname.c_str(), O_RDWR);  
             
-            if(this->file_descriptor<0){
-                cout<<"Port is Busy or Can't open for communication !!";
-                exit(0);
+            if(this->file_descriptor<0){    				 // checking if port is availbel
+                cout<<"Port is Busy or Can't open for communication !!"; //printing outputif not available
+                exit(0);						//exit
             } else {
-                cout<<"Connection Succeed!!"<<endl;
+                cout<<"Connection Succeed!!"<<endl;			// printing output if port is available
             }
 
-            struct termios options;
+            struct termios options;				// structure variable named termios
 
-            tcgetattr(this->file_descriptor, &options);
+            tcgetattr(this->file_descriptor, &options);    // reading the values of the named variables
             options.c_cflag &= ~PARENB; // Clear parity bit, disabling parity (most common)
             options.c_cflag &= ~CSTOPB; // Clear stop field, only one stop bit used in communication (most common)
             options.c_cflag &= ~CSIZE; // Clear all bits that set the data size 
@@ -74,22 +74,22 @@ class Uart{
 
         }
         ~Uart(){
-            close(this->file_descriptor);
-            cout<<"Connection Closed !!"<<endl;
+            close(this->file_descriptor);			// closing the connection once work is done
+            cout<<"Connection Closed !!"<<endl;			// output confirmation that connection is closed
         }
 
-        string readline(){
-            char recieve[500];
-            char* data=(char *)"\r";
+        string readline(){				//string function
+            char recieve[500];				// initializing char variable of size 500
+            char* data=(char *)"\r";			// assigning values
             memset(&recieve, '\r', sizeof(recieve));
             int array_size=sizeof(recieve) / sizeof(char);
             this->byte_counter=read(this->file_descriptor, &recieve, sizeof(recieve));
             if(this->byte_counter>0){
                 data = (char *) malloc(this->byte_counter*sizeof(char));
                 data=recieve;
-                return data;
+                return data;				// returning the value of data vaiable 
             }
-            string temp(data);
+            string temp(data);				
             return temp;
       }
 
