@@ -36,7 +36,7 @@ class Uart{					// class
 
             struct termios options;				// structure variable named termios
 
-            tcgetattr(this->file_descriptor, &options);    // reading the values of the named variables
+          tcgetattr(this->file_descriptor, &options);
             options.c_cflag &= ~PARENB; // Clear parity bit, disabling parity (most common)
             options.c_cflag &= ~CSTOPB; // Clear stop field, only one stop bit used in communication (most common)
             options.c_cflag &= ~CSIZE; // Clear all bits that set the data size 
@@ -74,92 +74,83 @@ class Uart{					// class
 
         }
         ~Uart(){
-            close(this->file_descriptor);			// closing the connection once work is done
-            cout<<"Connection Closed !!"<<endl;			// output confirmation that connection is closed
+            close(this->file_descriptor);
+            cout<<"Connection Closed !!"<<endl;
         }
 
-        string readline(){				//string function
-            char recieve[500];				// initializing char variable of size 500
-            char* data=(char *)"\r";			// assigning values
-            memset(&recieve, '\r', sizeof(recieve));
-            int array_size=sizeof(recieve) / sizeof(char);
-            this->byte_counter=read(this->file_descriptor, &recieve, sizeof(recieve));
+        string readline(){
+            char recieve[500];        // Character array declaration with size 500      
+            char* data=(char *)"\r";      // Converting Carriage Return to Character Pointer
+            memset(&recieve, '\r', sizeof(recieve));  //Take string and store into buffer
+            int array_size=sizeof(recieve) / sizeof(char);    // Calculate actual string size
+            this->byte_counter=read(this->file_descriptor, &recieve, sizeof(recieve)); // Read buffer and return status
             if(this->byte_counter>0){
-                data = (char *) malloc(this->byte_counter*sizeof(char));
+                data = (char *) malloc(this->byte_counter*sizeof(char));  // Dynamic memory Allocation
                 data=recieve;
-                return data;				// returning the value of data vaiable 
+                return data;
             }
-            string temp(data);				
+            string temp(data);
             return temp;
       }
 
       void writeData(string text){
           int count=0;
-	  const char * ch=text.c_str();
-	  count=write(this->file_descriptor, ch, strlen(ch));
+	  const char * ch=text.c_str();             // Convert C++ string to C style string (character pointer)
+	  count=write(this->file_descriptor, ch, strlen(ch));  // Write Command to our UART device and return status 0 or -1
           if(count<0){
               cout<<"Error Occured !!";
               exit(0);
-          }
-      }
-      void endSMS(int charr){
-	  int count=0;
-	  const char * ch=to_string(charr).c_str();
-	  count=write(this->file_descriptor, ch, strlen(ch));
-	  if(count<0){
-	      cout<<"Error Occured !!";
-	      exit(0);
           }
       }
 };
 
 
 int main(int argc, char **argv){
-    Uart gsm("/dev/ttyUSB0",B115200);
+    Uart gsm("/dev/ttyUSB0",B115200);  //Initalize and Declare Parameterized Constructor Variable (gsm) of class Uart
     int option;
     string ph,data,msg;
-    while(1){
+    while(1){                               //Infinite Loop
       cout<<"Please select an option \n";
       cout<<"1. Call"<<endl;
       cout<<"2. SMS"<<endl;
       cout<<"Enter choice : ";
-      cin>>option;
+      cin>>option;                        // User Input 
       
-      switch(option){
+      switch(option){                           // Switch Flow Control
 	  case 1: {cout<<"Enter phone number : ";
 		  cin>>ph;
-		  data="ATD"+ph+";\r";
+		  data="ATD"+ph+";\r";                  // String AT Command concatenation with user mobile number for calling 
 		  cout<<data<<endl;
-		  gsm.writeData(data);
+		  gsm.writeData(data);                  // Send commands to our GSM module
 		  for(int i=0; i<5; i++){
-		    cout<<gsm.readline()<<endl;
-		  system("sleep 1");
+		    cout<<gsm.readline()<<endl;         // Read and print output comes from GSM Module with respect to whatever command we send to GSM
+		  system("sleep 1");                    // Delay for 1 seconds using system command
 		  }
 	  break;}
 	  case 2: {
 	          cout<<"Enter phone number : ";
 		  cin>>ph;
-		  cin.ignore();
+		  cin.ignore();                       
 		  cout<<"Type your message : ";
-		  getline(cin, msg);
+		  getline(cin, msg);                       // It is string userinput to take string with whitespaces from user
 		  gsm.writeData("AT+CMGF=1\r"); // Configuring TEXT mode
 		  cout<<"Text Mode Enabled"<<flush<<endl;
-		  sleep(3);
-		  cout<<gsm.readline()<<flush<<endl;
-		  data="AT+CMGS=\""+ph+"\""+'\r';
-		  gsm.writeData(data);//change ZZ with country code and xxxxxxxxxxx with phone number to sm
-		  sleep(3);
-		  cout<<gsm.readline()<<endl;
-		  gsm.writeData(msg+(char)26);
-		  sleep(3);
-		  cout<<gsm.readline()<<flush<<endl;
+		  sleep(3);                            // Delay for 3 seconds using library function sleep.
+		  cout<<gsm.readline()<<flush<<endl; // Read and print output comes from GSM Module with respect to whatever command we send to GSM
+		  data="AT+CMGS=\""+ph+"\""+'\r';      // String AT Command concatenation with user mobile number for SMS
+		  gsm.writeData(data);                  // Send commands to our GSM module
+		  sleep(3);                         // Delay for 3 seconds using library function sleep.
+		  cout<<gsm.readline()<<endl;      // Read and print output comes from GSM Module with respect to whatever command we send to GSM
+		  gsm.writeData(msg+(char)26);   // Send commands to our GSM module
+		  sleep(3);                        // Delay for 3 seconds using library function sleep.
+		  cout<<gsm.readline()<<flush<<endl; // Read and print output comes from GSM Module with respect to whatever command we send to GSM
 		  for(int i=0; i<5; i++){
-		  cout<<gsm.readline()<<flush<<endl;
-		  sleep(2);
+		  cout<<gsm.readline()<<flush<<endl; // Read and print output comes from GSM Module with respect to whatever command we send to GSM
+		  sleep(2);                          // Delay for 2 seconds using library function sleep.
 	 	 }
-		  cout<<"message sentâ€¦";
+		  cout<<"message sent…";
 		  
-	  break;A
+	  break;
 	  }
 	  default: cout<<"Invalid Option!"<<endl;
 	  
