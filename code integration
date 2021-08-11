@@ -1,0 +1,535 @@
+
+#include <iostream> // C++ standard header file for input and output
+#include <thread> // C/c++ library for threading
+
+#include <string> // for string manipulation
+#include <unistd.h> // for system command
+#include <wiringPi.h> //for digital read and write
+#include <wiringSerial.h> // for serial communication 
+#include <wiringPiI2C.h> // for I2c communication
+
+#include <termios.h> // for serial communication
+#include <fcntl.h> // for read and write at port
+#include <stdio.h> // C standard library for input and output
+#include <cstring> // C style string manipulation
+#include <fstream> // C++ read and write file handling
+#include <sstream> // string type conversion header file
+#include <errno.h> // Standard library for error representation
+#include <cstdlib> // C style standard library for handling system commands
+#include "DS18B20.h" // Temperature sensor library 
+
+#define buzzer  21 // board pin number 40
+#define button  20 // board pin number 38
+#define capture 25 // board pin number 
+
+/*
+Buzzer 3 Legs ---> VCC = 3.3V (raspi)
+                   GND = GND  (raspi)
+                   out = 40 (board pin)
+
+Button 2 Legs ---> any end   = GND (raspi)
+                   other end = 38 (board pin)
+
+*/
+/* Start MACRO Definition */
+#define PULL_UP "pu"
+#define PULL_DOWN "pd"
+
+#define IN "ip"
+#define OUT "op"
+
+#define pressed 0
+#define release 1
+
+/* MACRO end */
+
+using namespace std;
+
+/*
+    1. Button, Buzzer,       GSM
+    2. Pulse rate sensor,    Temperature,  Adxl345
+    3. GPS, ES32
+    4. Real Time Operation, Boot Up Start
+*/
+
+/* PINS Decalartion and Path decalaration */
+
+int button_debounce = 1;
+bool button_status = false;
+bool panic_detect;
+
+long double latitude=31.12353929518458,longitude=74.44240699567881; // variable declaration
+
+
+int serial_port_descriptor;
+string gsm_path = "/dev/ttyUSB0";
+string pulse_rate = "/dev/ttyACM0";
+string gps_path="/dev/ttyAMA1";
+
+string careTaker = "+14379880527";
+
+string BPM, SMS_FORMAT;
+double tempNow;
+char w1_address[16] = "28-0120267e7e7c";
+DS18B20 w1Device1(w1_address);
+char dat;
+int fd=wiringPiI2CSetup(0x53);
+bool xdir = false;
+bool ydir = false;
+bool zdir = false;
+
+
+
+// fd = ;
+char buf[6] = {0};
+int x, y, z;
+
+/* End decalartions */
+
+
+/* Custom Linux based serial communication class for UART  */
+
+class Uart
+{ //This is our class for UART communication
+private:
+    /* private members */
+    string portname; 
+    size_t baud_rate;
+    int file_descriptor;
+    int byte_counter;
+
+/* Public data members and member functions */
+public:
+    /* START parameterized constructor */
+
+    Uart(string portname, size_t baud_rate)
+    { //It is a constructor
+        this->portname = portname; // value assign
+        this->baud_rate = baud_rate; // value assign
+        this->file_descriptor = open(this->portname.c_str(), O_RDWR); // value assign
+
+        /* Port Checking */
+        if (this->file_descriptor < 0)
+        {
+            cout << "Port is Busy or Can't open for communication !!";
+            exit(0);
+        }
+        else
+        {
+            cout << "Connection Succeed!!" << endl;
+        }
+
+        /* Start structure and assignment of value for configuration */
+        struct termios options;
+
+        tcgetattr(this->file_descriptor, &options);
+        options.c_cflag &= ~PARENB;        // Clear parity bit, disabling parity (most common)
+        options.c_cflag &= ~CSTOPB;        // Clear stop field, only one stop bit used in communication (most common)
+        options.c_cflag &= ~CSIZE;         // Clear all bits that set the data size
+        options.c_cflag |= CS8;            // 8 bits per byte (most common)
+        options.c_cflag &= ~CRTSCTS;       // Disable RTS/CTS hardware flow control (most common)
+        options.c_cflag |= CREAD | CLOCAL; // Turn on READ & ignore ctrl lines (CLOCAL = 1)
+
+        options.c_lflag &= ~ICANON;
+        options.c_lflag &= ~ECHO;                                                        // Disable echo
+        options.c_lflag &= ~ECHOE;                                                       // Disable erasure
+        options.c_lflag &= ~ECHONL;                                                      // Disable new-line echo
+        options.c_lflag &= ~ISIG;                                                        // Disable interpretation of INTR, QUIT and SUSP
+        options.c_iflag &= ~(IXON | IXOFF | IXANY);                                      // Turn off s/w flow ctrl
+        options.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL); // Disable any special handling of received bytes
+
+        options.c_oflag &= ~OPOST; // Prevent special interpretation of output bytes (e.g. newline chars)
+        options.c_oflag &= ~ONLCR; // Prevent conversion of newline to carriage return/line feed
+        // tty.c_oflag &= ~OXTABS; // Prevent conversion of tabs to spaces (NOT PRESENT ON LINUX)
+        // tty.c_oflag &= ~ONOEOT; // Prevent removal of C-d chars (0x004) in output (NOT PRESENT ON LINUX)
+
+        options.c_cc[VTIME] = 5; // Wait for up to 1s (10 deciseconds), returning as soon as any data is received.
+        options.c_cc[VMIN] = 0;
+
+        // Set in/out baud rate to be 9600
+        cfsetispeed(&options, this->baud_rate);
+        cfsetospeed(&options, this->baud_rate);
+        
+
+        tcsetattr(this->file_descriptor, TCSANOW, &options);
+
+        /* End Configuration */
+    }
+/////////////////////////////////////////////////////////////////////
+    /* Destructor Function  */
+    ~Uart()
+    { //It is Destructor
+        close(this->file_descriptor);
+        cout << "Connection Closed !!" << endl;
+    }
+/////////////////////////////////////////////////////////////////////
+    /* Helper function for getting value */
+
+    long double coordinate(long int val)
+    { // This function will convert a int value coming from GPS data as string to Exact coordinates of our location
+        int header;
+        header = (val / 10000000); //4300-4342.00742
+        return (long double)header + ((long double)val / 100000 - (long double)(header * 100)) / 60;
+    }
+///////////////////////////////////////////////////////////////////
+    /* Helper function for getting value */
+
+    long double raw_data_to_coord(string any)
+    {
+        /* This function will convert a string into integer and with the
+            * help of coordinate function whatever float value return by
+            * function will further return to that place where it is called.
+            * 
+           */
+        string convert = "";
+        int returnInt = 0;
+        for (char a : any)
+        {
+            if (a != '.')
+                convert += a;
+        }
+        stringstream intVal(convert);
+        intVal >> returnInt;
+        return coordinate(returnInt);
+    }
+///////////////////////////////////////////////////////////
+    /* Read GPS Port for recieving value  */
+    string gpsRead()
+    { // It is used for UART read data
+        char recieve[3500];
+        char *data;
+        memset(&recieve, '\0', sizeof(recieve));
+        int array_size = sizeof(recieve) / sizeof(char);
+        this->byte_counter = read(this->file_descriptor, &recieve, sizeof(recieve));
+        if (this->byte_counter > 0)
+        {
+            data = (char *)malloc(this->byte_counter * sizeof(char));
+            data = recieve;
+            return data;
+        }
+        string temp(data);
+        return temp;
+    }
+//////////////////////////////////////////////////////////
+    /* Read GSM Port for recieving data */
+
+    string gsmRead()
+    {
+        char recieve[500];
+        char *data = (char *)"\r";
+        memset(&recieve, '\r', sizeof(recieve));
+        int array_size = sizeof(recieve) / sizeof(char);
+        this->byte_counter = read(this->file_descriptor, &recieve, sizeof(recieve));
+        if (this->byte_counter > 0)
+        {
+            data = (char *)malloc(this->byte_counter * sizeof(char));
+            data = recieve;
+            return data;
+        }
+        string temp(data);
+        return temp;
+    }
+////////////////////////////////////////////////////////////////
+    /* Write Data to GSM Port */
+
+    void writeData(string text)
+    {
+        // It is for writing data to UART device like GPS, GSM
+        int count = 0;
+        const char *ch = text.c_str();
+        count = write(this->file_descriptor, ch, strlen(ch));
+        if (count < 0)
+        {
+            cout << "Error Occured !!";
+            exit(0);
+        }
+    }
+//////////////////////////////////////////////////////////////////////////
+};
+/* CLASS END  */
+
+
+///////////////////////////////////////////////////////////////////////
+/* parameterized function sending smss */
+void sms(Uart *object)
+{
+    string data;
+    SMS_FORMAT = "Help! Mike\n\nBPM:" + BPM + "\n\nTemperature : " + to_string(int(tempNow));
+    object->writeData("AT+CMGF=1\r"); // Configuring TEXT mode
+    sleep(3);
+    data = "AT+CMGS=\"" + careTaker + "\"" + '\r';
+    object->writeData(data);
+    sleep(3);
+    object->writeData(SMS_FORMAT + (char)26);
+    for (int i = 0; i < 250; i++)
+    {
+        cout << object->gsmRead();
+    }
+    sleep(2);
+}
+////////////////////////////////////////////////////////////////////
+/* Parameterized function to  make call */
+void calling(Uart *object)
+{
+    string data;
+    data = "ATD" + careTaker + ";\r";
+    object->writeData(data);
+
+    for (int i = 0; i < 250; i++){
+        object->gsmRead();
+    }
+
+    sleep(2);
+    sms(object);
+}
+//////////////////////////////////////////////////////////////////////////////
+/* Temperature data read and assign value to global value */
+void temperatureEvent(){
+    tempNow = w1Device1.getTemp();
+}
+///////////////////////////////////////////////////////////////////////
+/* Pulse rate Data read via Arduino and assign value to global value */
+void pulseRateEvent(Uart* object)
+{
+    int serial_port;
+    serial_port = serial_port_descriptor;
+    BPM = "";
+
+    if (serialDataAvail(serial_port))
+    {
+        dat = serialGetchar(serial_port); /* receive character serially*/
+        BPM += to_string(int(dat) - 48);
+        fflush(stdout);
+    }
+    
+    cout << "  [ BPM: " << BPM << " ]" << endl;
+    stringstream geek(BPM);
+    int vall=0;
+    geek >> vall;
+    geek.str("");
+    geek.clear();
+    if(vall>200){
+        digitalWrite(buzzer,LOW);
+        calling(object);
+    }else{
+        digitalWrite(buzzer, HIGH);
+    }
+}
+/////////////////////////////////////////////////////////////////////////////////////
+/* custom functions to read and write Digital pins */
+void pin_declaration(int pinNum, string mod, string logic = PULL_DOWN)
+{
+    string command;
+    /*   
+        use terminal command raspi-gpio
+    */
+    if (mod == OUT)
+    {
+        command = "raspi-gpio set " + to_string(pinNum) + " " + mod; // we haven't added logic in this command, default GPIO is PULL_DOWN
+    }
+    else
+    {
+        command = "raspi-gpio set " + to_string(pinNum) + " " + mod + " " + logic;
+    }
+    cout << command << endl;
+    system(command.c_str());
+}
+//////////////////////////////////////////////////////////////
+/* ADXL read via I2C and assign value to global variables */
+void adxlRead(Uart* object)
+{
+    buf[0] = wiringPiI2CReadReg8(fd, 0x32);
+    buf[1] = wiringPiI2CReadReg8(fd, 0x33);
+
+    buf[2] = wiringPiI2CReadReg8(fd, 0x34);
+    buf[3] = wiringPiI2CReadReg8(fd, 0x35);
+
+    buf[4] = wiringPiI2CReadReg8(fd, 0x36);
+    buf[5] = wiringPiI2CReadReg8(fd, 0x37);
+
+    x = ((int)buf[1] << 8) | (int)buf[0];
+    if (x & (1 << 16 - 1))
+        x = x - (1 << 16);
+
+    y = ((int)buf[3] << 8) | (int)buf[2];
+    if (y & (1 << 16 - 1))
+        y = y - (1 << 16);
+
+    z = ((int)buf[5] << 8) | (int)buf[4];
+    if (z & (1 << 16 - 1))
+        z = z - (1 << 16);
+
+    if (x < 0 && x > -50)
+    {
+        xdir = true;
+    }
+    else
+    {
+        xdir = false;
+    }
+
+    if (y > 0 && y < 50)
+    {
+        ydir = true;
+    }
+    else
+    {
+        ydir = false;
+    }
+
+    if (xdir && ydir)
+    {
+        cout << "Person fall down !" << endl;
+        digitalWrite(buzzer, LOW);
+        calling(object);
+    }
+    else
+    {
+        cout << "Person in normal posture" << endl;
+        digitalWrite(buzzer, HIGH);
+    }
+    cout << "x:" << x << "\ty:" << y << "\tz:" << z << endl;
+
+}
+///////////////////////////////////////////////////////////////
+/* Send signal to ESP32 to capture image (which upload on BLYNK Server) */
+
+void clickMyPic(){
+     cout<<"Image Capture!!"<<endl;
+    digitalWrite(25,HIGH);
+    delay(500);
+    digitalWrite(25,LOW);
+    delay(500);
+} 
+
+////////////////////////////////////////////////////////////////////////////
+/* Button Event Handler */
+
+void buttonEvent(Uart* object){
+    panic_detect=!(digitalRead(button));
+    if(panic_detect){
+        digitalWrite(buzzer, LOW);
+        calling(object);
+    }else{
+        digitalWrite(buzzer, HIGH);
+    }
+}
+///////////////////////////////////////////////////////////////////////////
+/* GPS function event */
+
+void myGPSEvent(Uart *object){
+    int count=0;
+
+    string loc[4]; // String array with size 4
+    char *arr; // character pointer
+
+    string data, extracted_data="";
+    while(1){
+      ++count;
+      data=object->gpsRead();  // data read and store into variable. 
+      extracted_data+=data; // character into extracted+data 
+      if(count>2){
+	break;
+      }
+    }
+    data="";
+    cout<<extracted_data<<endl;
+    for(int i=19; i<strlen(extracted_data.c_str()); i++){
+      /* filter data to slice string to desired format */
+      data+=extracted_data[i];
+    }
+    count=0;
+    for(int i=0; i<4; i++) //initially all array index set to ""
+      loc[i]="";
+      
+    for(int i=0; i<strlen(data.c_str()); i++){ /* 
+      filter data and store coordinates and direction to array
+      * */
+       if(data[i] ==','){
+	 count++;
+       }
+       else{
+	 loc[count]+=data[i];
+       }
+       if(count>4){
+	 break;
+       }
+    }
+    
+    for(int i=0; i<4; i++){ // convert index value according to direction
+      if(loc[i]=="N"){
+	loc[i]="1";
+      }
+      else if(loc[i]=="W"){
+	loc[i]="-1";
+      }
+      else if(loc[i]=="S"){
+	loc[i]="-1";
+      }
+      else if(loc[i]=="E"){
+	loc[i]="1";
+      }
+    }
+    
+    
+    latitude=object->raw_data_to_coord(loc[0]) * atoi(loc[1].c_str());   
+    /* Latitude -- coming from function  */
+    longitude=object->raw_data_to_coord(loc[2]) * atoi(loc[3].c_str());  
+    /* Longitude -- coming from function */
+    
+    /* atoi ---> convert string to int  */
+  
+    printf("\nLatitude: %lf\nLongtitude: %lf\n\n",latitude,longitude);
+}
+
+/////////////////////////////////////////////////////////////////////////
+/* MAIN function entry  */
+
+int main()
+{   
+    system("echo 20 > /sys/class/gpio/export");
+    system("echo 21 > /sys/class/gpio/export");
+    system("echo 25 > /sys/class/gpio/export");
+
+    char dataa; // character variable declaration
+
+    /* Check serial port available or not */
+    if ((serial_port_descriptor = serialOpen(pulse_rate.c_str(), 9600)) < 0) /* open serial port */
+    {
+        fprintf(stderr, "Unable to open serial device: %s\n", strerror(errno));
+        return 1;
+    }
+
+    if (wiringPiSetup() == -1) /* initializes wiringPi setup */
+    {
+        fprintf(stdout, "Unable to start wiringPi: %s\n", strerror(errno));
+        return 1;
+    }
+
+    wiringPiSetupGpio(); // Change WiringPi mode from default to GPIO 
+    pin_declaration(button, IN, PULL_UP); // set button as Input
+    pin_declaration(capture, OUT); // set esp32 signal pin as Output
+    pin_declaration(buzzer, OUT); // Set buzzer as Output
+    digitalWrite(buzzer, HIGH); // Set buzzer logic initially to HIGH
+    
+    Uart gsm(gsm_path, B115200); // declare class object constructor with PAth and Baud rate
+    Uart gps(gps_path,B9600); 
+    bool one_time = true;  // local varaible decalration to run function for one time
+
+    /* Infinite Loop */
+    while (1) {
+        
+        /* thread decalartion */
+        thread th1(buttonEvent, &gsm);
+        thread th2(adxlRead, &gsm);
+        thread th3(pulseRateEvent, &gsm);
+
+        th1.join();
+        th2.join();
+        th3.join();
+
+        sleep(2);
+    }
+    
+    return 0;
+}
