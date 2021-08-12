@@ -1,9 +1,9 @@
-#include <wiringPi.h>
-#include <wiringPiI2C.h>
-#include <iostream>
-#include <wiringSerial.h>
-#include <pthread.h>
-#include <unistd.h>
+#include <wiringPi.h> //for digital read and write
+#include <wiringPiI2C.h> //for I2c communication
+#include <iostream> //C++ standard header file for input and output
+#include <wiringSerial.h>  //for serial communication 
+#include <pthread.h> //provide the POSIX thread(pthread) standard API(Application program Interface) for all thread related functions
+#include <unistd.h> //for system command
 #include <fcntl.h> //read and write function for UART 
 #include <cstdlib>  // use function for C-styled string to maipulate data
 #include <sstream> // use for converting float, int --> String or vice versa
@@ -12,10 +12,10 @@
 #include <stdlib.h> // use for The stdlib.h header defines four variable types, several macros, and various functions for performing general functions.
 #include <fstream> // use for file handling to read and write from Path
 #include <vector> // use for standard library like to implement List, dict and in C++
-#include <cstring>
-#include <errno.h>
+#include <cstring> //C style string manipulation
+#include <errno.h> //Standard library for error representation
 
-#include "DS18B20.h"
+#include "DS18B20.h" //Temperature sensor library
 #include <sched.h>  // Scheduling library for prioritization of threads
 
 
